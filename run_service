@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
 
 #iceflix-main --Ice.Config=configs/main.config 
-python3 iceflix/main.py --Ice.Config=configs/main.config
+#python3 iceflix/main.py --Ice.Config=configs/main.config
+
+icebox --Ice.Config=configs/icebox.config 
+sleep 0.1
+python3 iceflix/main.py --Ice.Config=configs/icestorm.config

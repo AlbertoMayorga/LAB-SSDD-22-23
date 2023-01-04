@@ -9,6 +9,35 @@ import Ice
 Ice.loadSlice('iceflix/iceflix.ice')
 import IceFlix  # pylint:disable=import-error
 
+class Announcement(IceFlix.Announcement):
+    def __init__(self):
+        self.authenticator_list = []
+        self.catalog_list = []
+        self.file_list = []
+        self.mains = {}
+
+    def announce(self, service, serviceId, current=None):
+        "Announcements handler."
+        services = list(self.authenticator_list) + list(self.catalog_list) + list(self.file_list) + list(self.mains.values())
+        if service not in services:
+            if serviceId != str(uuid.uuid4()):
+                if service.ice_isA('::IceFlix::Authenticator'):
+                    print(f'New AuthServer: {serviceId}')
+                    self.authenticator_list.append(IceFlix.AuthenticatorPrx.uncheckedCast(service))
+
+                if service.ice_isA('::IceFlix::MediaCatalog'):
+                    print(f'New CatalogServer: {serviceId}')
+                    self.catalog_list.append(IceFlix.MediaCatalogPrx.uncheckedCast(service))
+
+                if service.ice_isA('::IceFlix::FileService'):
+                    print(f'New FileServer: {serviceId}')
+                    self.file_list.append(IceFlix.FileServicePrx.uncheckedCast(service))
+
+                if service.ice_isA('::IceFlix::Main'):
+                    print(f'New MainServer: {serviceId}')
+                    self.mains.update({serviceId:service})
+
+
 class Main(IceFlix.Main):
     """Servant for the IceFlix.Main interface.
 
@@ -16,13 +45,8 @@ class Main(IceFlix.Main):
     for this interface. Use it with caution
     """
     def __init__(self, timer):
-        self.authenticator_list = []
-        self.catalog_list = []
-        self.file_list = []
-        self.mains = {}
         self._id_ = str(uuid.uuid4())
         self.timer = timer
-        self.updated = False
 
     def getAuthenticator(self, current=None):  # pylint:disable=invalid-name, unused-argument
         "Return the stored Authenticator proxy."
@@ -60,56 +84,6 @@ class Main(IceFlix.Main):
                     print(exception)
         raise IceFlix.TemporaryUnavaible()
 
-    def newService(self, proxy, service_id, current=None):  # pylint:disable=invalid-name, unused-argument
-        "Receive a proxy of a new service."
-        if service_id != str(uuid.uuid4()):
-            if proxy.ice_isA('::IceFlix::Main'):
-                proxy_service = IceFlix.MainPrx.checkedCast(proxy)
-                if str(uuid.uuid4()) != self._id_ and self.updated is False:
-                    self.timer.cancel()
-                    proxy_service.authenticator_list = self.authenticator_list
-                    proxy_service.catalog_list = self.catalog_list
-                    proxy_service.file_list = self.file_list
-                    self.updated = True
-
-            if proxy.ice_isA('::IceFlix::Authenticator'):
-                proxy_service = IceFlix.AuthenticatorPrx.checkedCast(proxy)
-                if str(uuid.uuid4()) != self._id_ and self.updated is False:
-                    self.timer.cancel()
-                    self.updated = True
-
-            if proxy.ice_isA('::IceFlix::MediaCatalog'):
-                proxy_service = IceFlix.MediaCatalogPrx.checkedCast(proxy)
-                if str(uuid.uuid4()) != self._id_ and self.updated is False:
-                    self.timer.cancel()
-                    self.updated = True
-
-            if proxy.ice_isA('::IceFlix::FileService'):
-                proxy_service = IceFlix.FileServicePrx.checkedCast(proxy)
-                if str(uuid.uuid4()) != self._id_ and self.updated is False:
-                    self.timer.cancel()
-                    self.updated = True
-
-    def announce(self, proxy, service_id, current=None):  # pylint:disable=invalid-name, unused-argument
-        "Announcements handler."
-        services = list(self.authenticator_list) + list(self.catalog_list) + list(self.file_list) + list(self.mains.values())
-        if proxy not in services:
-            if service_id != str(uuid.uuid4()):
-                if proxy.ice_isA('::IceFlix::Authenticator'):
-                    print(f'New AuthServer: {service_id}')
-                    self.authenticator_list.append(IceFlix.AuthenticatorPrx.uncheckedCast(proxy))
-
-                if proxy.ice_isA('::IceFlix::MediaCatalog'):
-                    print(f'New CatalogServer: {service_id}')
-                    self.catalog_list.append(IceFlix.MediaCatalogPrx.uncheckedCast(proxy))
-
-                if proxy.ice_isA('::IceFlix::FileService'):
-                    print(f'New FileServer: {service_id}')
-                    self.file_list.append(IceFlix.FileServicePrx.uncheckedCast(proxy))
-
-                if proxy.ice_isA('::IceFlix::Main'):
-                    print(f'New MainServer: {service_id}')
-                    self.mains.update({service_id:proxy})
 
 class MainApp(Ice.Application):
     """Example Ice.Application for a Main service."""
