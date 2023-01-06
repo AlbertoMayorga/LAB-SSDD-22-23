@@ -6,8 +6,11 @@ import uuid
 import threading
 
 import Ice
+import IceStorm
 Ice.loadSlice('iceflix/iceflix.ice')
 import IceFlix  # pylint:disable=import-error
+
+id_server = str(uuid.uuid4())
 
 class Announcement(IceFlix.Announcement):
     def __init__(self):
@@ -20,7 +23,7 @@ class Announcement(IceFlix.Announcement):
         "Announcements handler."
         services = list(self.authenticator_list) + list(self.catalog_list) + list(self.file_list) + list(self.mains.values())
         if service not in services:
-            if serviceId != str(uuid.uuid4()):
+            if serviceId != id_server:
                 if service.ice_isA('::IceFlix::Authenticator'):
                     print(f'New AuthServer: {serviceId}')
                     self.authenticator_list.append(IceFlix.AuthenticatorPrx.uncheckedCast(service))
@@ -44,79 +47,105 @@ class Main(IceFlix.Main):
     Disclaimer: this is demo code, it lacks of most of the needed methods
     for this interface. Use it with caution
     """
-    def __init__(self, timer):
-        self._id_ = str(uuid.uuid4())
+    def __init__(self, annoucement_server, timer):
+        self._id_ = id_server
+        self.announcement = annoucement_server
         self.timer = timer
 
     def getAuthenticator(self, current=None):  # pylint:disable=invalid-name, unused-argument
         "Return the stored Authenticator proxy."
-        if len(self.authenticator_list) != 0:
-            for i in self.authenticator_list:
+        if len(self.annoucement_server.authenticator_list) != 0:
+            for i in self.annoucement_server.authenticator_list:
                 print(i)
                 try:
                     i.ice_ping()
                     return IceFlix.AuthenticatorPrx.checkedCast(i)
                 except Ice.ConnectionRefusedException as exception:
                     print(exception)
-        raise IceFlix.TemporaryUnavaible()
+        raise IceFlix.TemporaryUnavailable()
 
     def getCatalog(self, current=None):  # pylint:disable=invalid-name, unused-argument
         "Return the stored MediaCatalog proxy."
-        if len(self.catalog_list) != 0:
-            for i in self.catalog_list:
+        if len(self.annoucement_server.catalog_list) != 0:
+            for i in self.annoucement_server.catalog_list:
                 print(i)
                 try:
                     i.ice_ping()
                     return IceFlix.MediaCatalogPrx.checkedCast(i)
                 except Ice.ConnectionRefusedException as exception:
                     print(exception)
-        raise IceFlix.TemporaryUnavaible()
+        raise IceFlix.TemporaryUnavailable()
 
     def getFileService(self, current=None): # pylint:disable=invalid-name, unused-argument
         "Return the stored FileService proxy."
-        if len(self.file_list) != 0:
-            for i in self.file_list:
+        if len(self.annoucement_server.file_list) != 0:
+            for i in self.annoucement_server.file_list:
                 print(i)
                 try:
                     i.ice_ping()
                     return IceFlix.FileServicePrx.checkedCast(i)
                 except Ice.ConnectionRefusedException as exception:
                     print(exception)
-        raise IceFlix.TemporaryUnavaible()
+        raise IceFlix.TemporaryUnavailable()
 
 
 class MainApp(Ice.Application):
     """Example Ice.Application for a Main service."""
     def __init__(self):
         super().__init__()
+        self.announcement_server = Announcement()
         self.timerr = threading.Timer(3, print("First Main!!"))
-        self.servant = Main(self.timerr)
+        self.servant = Main(self.announcement_server, self.timerr)
         self.proxy = None
         self.adapter = None
 
-    def annoucement(self, servant, proxy):
+
+    def annoucement(self, announcement_server_proxy, proxy):
         """Annoucement method"""
-        servant.announce(proxy, str(uuid.uuid4()))
-        timer = threading.Timer(25, self.annoucement, (servant, proxy))
-        timer.start()
+        announcement_server_proxy.announce(proxy, id_server)
+        self.timer = threading.Timer(10, self.annoucement, (announcement_server_proxy, proxy))
+        self.timer.start()
 
     def run(self, args):
         """Run the application, adding the needed objects to the adapter."""
         logging.info("Running Main application")
-        comm = self.communicator()
-        self.adapter = comm.createObjectAdapter("MainAdapter")
-        self.adapter.activate()
-        self.proxy = self.adapter.addWithUUID(self.servant)
 
-        self.servant.newService(self.proxy, str(uuid.uuid4()))
+        comm = self.communicator()
+        self.adapter = comm.createObjectAdapterWithEndpoints('Main', 'tcp')
+
+        topic_manager_str_prx = "IceStorm/TopicManager -t:tcp -h localhost -p 10000"
+        topic_manager = IceStorm.TopicManagerPrx.checkedCast(self.communicator().stringToProxy(topic_manager_str_prx), )
+        if not topic_manager:
+            raise RuntimeError("Invalid TopicManager proxy")
+        
+        topic_name = "Announcements"
+        try: 
+            topic = topic_manager.create(topic_name)
+        except IceStorm.TopicExists:
+            topic = topic_manager.retrieve(topic_name)
+
+        qos = {}
+
+        announcement_server_proxy = self.adapter.addWithUUID(self.announcement_server)
+        publisher = topic.subscribeAndGetPublisher(qos, announcement_server_proxy)
+
+        self.proxy = self.adapter.addWithUUID(self.servant)
+        self.adapter.activate()
+        print(self.proxy)
+        topic.subscribeAndGetPublisher(qos, self.proxy)
+        announcement_server_proxy = IceFlix.AnnouncementPrx.uncheckedCast(topic.getPublisher())
+        announcement_server_proxy.announce(self.proxy, id_server)
+
         self.timerr.start()
-        timer = threading.Timer(3, self.annoucement, (self.servant, self.proxy))
-        timer.start()
+
+        self.timer = threading.Timer(10, self.annoucement, (announcement_server_proxy, self.proxy))
+        self.timer.start()
+
         print("Main Server: " +str(self.proxy), flush=True)
 
         self.shutdownOnInterrupt()
         comm.waitForShutdown()
-        timer.cancel()
+        self.timer.cancel()
         self.timerr.cancel()
 
         return 0
