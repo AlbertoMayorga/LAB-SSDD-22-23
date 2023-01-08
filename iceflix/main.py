@@ -91,15 +91,6 @@ class Main(IceFlix.Main):
 
 class MainApp(Ice.Application):
     """Example Ice.Application for a Main service."""
-    def __init__(self):
-        super().__init__()
-        self.announcement_server = Announcement()
-        self.timerr = threading.Timer(3, print("First Main!!"))
-        self.servant = Main(self.announcement_server, self.timerr)
-        self.proxy = None
-        self.adapter = None
-
-
     def annoucement(self, announcement_server_proxy, proxy):
         """Annoucement method"""
         announcement_server_proxy.announce(proxy, id_server)
@@ -111,7 +102,13 @@ class MainApp(Ice.Application):
         logging.info("Running Main application")
 
         comm = self.communicator()
+        announcement_server = Announcement()
+        self.timerr = threading.Timer(3, print("First Main!!"))
         self.adapter = comm.createObjectAdapterWithEndpoints('Main', 'tcp')
+        self.servant = Main(announcement_server, self.timerr)
+        self.proxy = self.adapter.addWithUUID(self.servant)
+        
+        self.proxy = self.adapter.add(self.servant, comm.stringToIdentity("main1"))
 
         topic_manager_str_prx = "IceStorm/TopicManager -t:tcp -h localhost -p 10000"
         topic_manager = IceStorm.TopicManagerPrx.checkedCast(self.communicator().stringToProxy(topic_manager_str_prx), )
@@ -124,20 +121,16 @@ class MainApp(Ice.Application):
         except IceStorm.TopicExists:
             topic = topic_manager.retrieve(topic_name)
 
-        qos = {}
+        announcement_server_proxy = self.adapter.addWithUUID(announcement_server)
+        publisher = topic.getPublisher()
+        announcement_server_proxy = IceFlix.AnnouncementPrx.uncheckedCast(publisher)
+        if not announcement_server_proxy:
+            raise RuntimeError("Invalid publisher proxy")
 
-        announcement_server_proxy = self.adapter.addWithUUID(self.announcement_server)
-        publisher = topic.subscribeAndGetPublisher(qos, announcement_server_proxy)
-
-        self.proxy = self.adapter.addWithUUID(self.servant)
-        self.adapter.activate()
-        print(self.proxy)
-        topic.subscribeAndGetPublisher(qos, self.proxy)
-        announcement_server_proxy = IceFlix.AnnouncementPrx.uncheckedCast(topic.getPublisher())
         announcement_server_proxy.announce(self.proxy, id_server)
-
+        
+        self.adapter.activate()
         self.timerr.start()
-
         self.timer = threading.Timer(10, self.annoucement, (announcement_server_proxy, self.proxy))
         self.timer.start()
 
@@ -150,5 +143,5 @@ class MainApp(Ice.Application):
 
         return 0
 
-Main = MainApp()
-sys.exit(Main.main(sys.argv))
+app = MainApp()
+sys.exit(app.main(sys.argv))
