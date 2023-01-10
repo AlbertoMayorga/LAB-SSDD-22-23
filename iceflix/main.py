@@ -104,7 +104,8 @@ class MainApp(Ice.Application):
         comm = self.communicator()
         announcement_server = Announcement()
         self.timerr = threading.Timer(3, print("First Main!!"))
-        self.adapter = comm.createObjectAdapterWithEndpoints('Main', 'tcp')
+        #self.adapter = comm.createObjectAdapterWithEndpoints('Main', 'tcp')
+        self.adapter = comm.createObjectAdapter("MainAdapter")
         self.servant = Main(announcement_server, self.timerr)
         self.proxy = self.adapter.addWithUUID(self.servant)
         
