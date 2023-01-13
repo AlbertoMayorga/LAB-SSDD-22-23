@@ -38,7 +38,9 @@ class Announcement(IceFlix.Announcement):
 
                 if service.ice_isA('::IceFlix::Main'):
                     print(f'New MainServer: {serviceId}')
-                    self.mains.update({serviceId:service})
+                    #self.mains.update({serviceId:service})
+                    self.mains[serviceId] = IceFlix.MainPrx.uncheckedCast(service)
+                    print("Servidor principal")
 
 
 class Main(IceFlix.Main):
@@ -102,14 +104,8 @@ class MainApp(Ice.Application):
         logging.info("Running Main application")
 
         comm = self.communicator()
-        announcement_server = Announcement()
-        self.timerr = threading.Timer(3, print("First Main!!"))
-        #self.adapter = comm.createObjectAdapterWithEndpoints('Main', 'tcp')
         self.adapter = comm.createObjectAdapter("MainAdapter")
-        self.servant = Main(announcement_server, self.timerr)
-        self.proxy = self.adapter.addWithUUID(self.servant)
-        
-        self.proxy = self.adapter.add(self.servant, comm.stringToIdentity("main1"))
+        announcement_server = Announcement()
 
         topic_manager_str_prx = "IceStorm/TopicManager -t:tcp -h localhost -p 10000"
         topic_manager = IceStorm.TopicManagerPrx.checkedCast(self.communicator().stringToProxy(topic_manager_str_prx), )
@@ -123,15 +119,24 @@ class MainApp(Ice.Application):
             topic = topic_manager.retrieve(topic_name)
 
         announcement_server_proxy = self.adapter.addWithUUID(announcement_server)
+        topic.subscribeAndGetPublisher({}, announcement_server_proxy)
+
+        self.timerr = threading.Timer(3, print("First Main!!"))
+
+        self.servant = Main(announcement_server, self.timerr)
+        self.proxy = self.adapter.addWithUUID(self.servant)
+        
+        self.adapter.activate()
+
         publisher = topic.getPublisher()
         announcement_server_proxy = IceFlix.AnnouncementPrx.uncheckedCast(publisher)
         if not announcement_server_proxy:
             raise RuntimeError("Invalid publisher proxy")
 
         announcement_server_proxy.announce(self.proxy, id_server)
-        
-        self.adapter.activate()
+
         self.timerr.start()
+
         self.timer = threading.Timer(10, self.annoucement, (announcement_server_proxy, self.proxy))
         self.timer.start()
 
@@ -139,8 +144,8 @@ class MainApp(Ice.Application):
 
         self.shutdownOnInterrupt()
         comm.waitForShutdown()
-        self.timer.cancel()
         self.timerr.cancel()
+        self.timer.cancel()
 
         return 0
 
