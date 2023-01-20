@@ -171,8 +171,8 @@ class MainApp(Ice.Application):
         self.adapter = comm.createObjectAdapter("MainAdapter")
         announcement_server = Announcement()
 
-        topic_manager_str_prx = "IceStorm/TopicManager -t:tcp -h localhost -p 10000"
-        topic_manager = IceStorm.TopicManagerPrx.checkedCast(self.communicator().stringToProxy(topic_manager_str_prx), ) #pylint: disable=line-too-long
+        #topic_manager_str_prx = "IceStorm/TopicManager -t:tcp -h localhost -p 10000"
+        topic_manager = IceStorm.TopicManagerPrx.checkedCast(self.communicator().propertyToProxy("IceStorm.TopicManager")) #pylint: disable=line-too-long
         if not topic_manager:
             raise RuntimeError("Invalid TopicManager proxy")
 
