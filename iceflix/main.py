@@ -6,6 +6,8 @@ import uuid
 import threading
 import random
 
+logging.basicConfig(level=logging.DEBUG)
+
 import Ice
 import IceStorm
 Ice.loadSlice('iceflix/iceflix.ice')
@@ -25,7 +27,7 @@ class Announcement(IceFlix.Announcement):
 
     def remove_service(self, serviceId, list_name, current=None): # pylint:disable=invalid-name, unused-argument
         "Removing a service."
-        logging.info("Removing service {serviceId} from {list_name}")
+        logging.debug("Removing service {serviceId} from {list_name}")
         if list_name == "authenticator_list":
             del self.authenticator_list[serviceId]
         elif list_name == "catalog_list":
@@ -38,12 +40,12 @@ class Announcement(IceFlix.Announcement):
 
     def announce(self, service, serviceId, current=None): # pylint:disable=invalid-name, unused-argument
         "Announcements handler."
-        logging.info("Received announcement from service: {serviceId}")
+        logging.debug("Received announcement from service: {serviceId}")
         services = list(self.authenticator_list.values()) + list(self.catalog_list.values()) + list(self.file_list.values()) + list(self.mains.values()) #pylint: disable=line-too-long
         if service not in services:
             if serviceId != ID_SERVER:
                 if service.ice_isA('::IceFlix::Authenticator'):
-                    logging.info('New AuthServer: {serviceId}')
+                    logging.debug('New AuthServer: {serviceId}')
                     # check if there is a timer for this service
                     if serviceId in self.timers:
                         self.timers[serviceId].cancel()
@@ -52,7 +54,7 @@ class Announcement(IceFlix.Announcement):
                     self.authenticator_list[serviceId] = IceFlix.AuthenticatorPrx.uncheckedCast(service) #pylint: disable=line-too-long
 
                 if service.ice_isA('::IceFlix::MediaCatalog'):
-                    logging.info('New CatalogServer: {serviceId}')
+                    logging.debug('New CatalogServer: {serviceId}')
                     # check if there is a timer for this service
                     if serviceId in self.timers:
                         self.timers[serviceId].cancel()
@@ -61,7 +63,7 @@ class Announcement(IceFlix.Announcement):
                     self.catalog_list[serviceId] = IceFlix.MediaCatalogPrx.uncheckedCast(service)
 
                 if service.ice_isA('::IceFlix::FileService'):
-                    logging.info('New FileServer: {serviceId}')
+                    logging.debug('New FileServer: {serviceId}')
                     # check if there is a timer for this service
                     if serviceId in self.timers:
                         self.timers[serviceId].cancel()
@@ -70,14 +72,15 @@ class Announcement(IceFlix.Announcement):
                     self.file_list[serviceId] = IceFlix.FileServicePrx.uncheckedCast(service)
 
                 if service.ice_isA('::IceFlix::Main'):
-                    logging.info('New MainServer: {serviceId}')
+                    logging.debug('New MainServer: {serviceId}')
                     # check if there is a timer for this service
                     if serviceId in self.timers:
                         self.timers[serviceId].cancel()
                     self.timers[serviceId] = threading.Timer(10, self.remove_service, args=(serviceId, 'mains')) #pylint: disable=line-too-long
                     self.timers[serviceId].start()
                     self.mains[serviceId] = IceFlix.MainPrx.uncheckedCast(service)
-
+        else:
+            logging.debug("Announcement from service: {serviceId} has not been stored")
 
 class Main(IceFlix.Main):
     """Servant for the IceFlix.Main interface.
@@ -104,8 +107,8 @@ class Main(IceFlix.Main):
                     found = True
                     logging.debug("Returning an Authenticator proxy")
                     return IceFlix.AuthenticatorPrx.checkedCast(random_proxy)
-                except Ice.ConnectionRefusedException as exception:
-                    logging.error("Error de conexión: %s", exception)
+                except ConnectionRefusedError as exception:
+                    logging.error("Connection error: %s", exception)
                     del self.announcement.authenticator_list[random_key]
         raise IceFlix.TemporaryUnavailable()
 
@@ -122,8 +125,8 @@ class Main(IceFlix.Main):
                     found = True
                     logging.debug("Returning a Catalog proxy")
                     return IceFlix.MediaCatalogPrx.checkedCast(random_proxy)
-                except Ice.ConnectionRefusedException as exception:
-                    logging.error("Error de conexión: %s", exception)
+                except ConnectionRefusedError as exception:
+                    logging.error("Connection error: %s", exception)
                     del self.announcement.catalog_list[random_key]
         raise IceFlix.TemporaryUnavailable()
 
@@ -140,8 +143,8 @@ class Main(IceFlix.Main):
                     found = True
                     logging.debug("Returning a File proxy")
                     return IceFlix.FileServicePrx.checkedCast(random_proxy)
-                except Ice.ConnectionRefusedException as exception:
-                    logging.error("Error de conexión: %s", exception)
+                except ConnectionRefusedError as exception:
+                    logging.error("Connection error: %s", exception)
                     del self.announcement.file_list[random_key]
         raise IceFlix.TemporaryUnavailable()
 
@@ -160,7 +163,7 @@ class MainApp(Ice.Application):
     def annoucement(self, announcement_server_proxy, proxy, current=None): # pylint:disable=invalid-name, unused-argument
         """Annoucement method"""
         announcement_server_proxy.announce(proxy, ID_SERVER)
-        self.timer = threading.Timer(10, self.annoucement, (announcement_server_proxy, proxy))
+        self.timer = threading.Timer(10, self.annoucement, args=(announcement_server_proxy, proxy))
         self.timer.start()
 
     def run(self, args):
@@ -172,14 +175,14 @@ class MainApp(Ice.Application):
         announcement_server = Announcement()
 
         #topic_manager_str_prx = "IceStorm/TopicManager -t:tcp -h localhost -p 10000"
-        topic_manager = IceStorm.TopicManagerPrx.checkedCast(self.communicator().propertyToProxy("IceStorm.TopicManager")) #pylint: disable=line-too-long
+        topic_manager = IceStorm.TopicManagerPrx.checkedCast(self.communicator().propertyToProxy("IceStorm.TopicManager")) #pylint: disable=no-member,line-too-long
         if not topic_manager:
             raise RuntimeError("Invalid TopicManager proxy")
 
         topic_name = "Announcements"
         try:
             topic = topic_manager.create(topic_name)
-        except IceStorm.TopicExists:
+        except IceStorm.TopicExists: #pylint: disable=no-member
             topic = topic_manager.retrieve(topic_name)
 
         announcement_server_proxy = self.adapter.addWithUUID(announcement_server)
@@ -201,7 +204,7 @@ class MainApp(Ice.Application):
 
         self.timerr.start()
 
-        self.timer = threading.Timer(10, self.annoucement, (announcement_server_proxy, self.proxy))
+        self.timer = threading.Timer(10, self.annoucement, args=(announcement_server_proxy, self.proxy)) #pylint: disable=line-too-long
         self.timer.start()
 
         print("Main Server: " +str(self.proxy), flush=True)
